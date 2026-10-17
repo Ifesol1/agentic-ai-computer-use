@@ -1,0 +1,11 @@
+[package]
+name = "hands"
+description = "Screens and input: one trait, a backend per desktop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+proto.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true

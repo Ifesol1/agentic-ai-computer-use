@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs the toolchain from rust-toolchain.toml and caches target/
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: web/src/gen matches crates/proto
+        run: |
+          if [ -n "$(git status --porcelain web/src/gen)" ]; then
+            git status --porcelain web/src/gen
+            echo "::error::web/src/gen is out of date: run cargo test and commit web/src/gen"
+            exit 1
+          fi

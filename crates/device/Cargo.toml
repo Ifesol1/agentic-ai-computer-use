@@ -1,0 +1,8 @@
+[package]
+name = "device"
+description = "Runs on a member's PC: dials the hub and does actions there"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
