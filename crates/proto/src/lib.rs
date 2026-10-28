@@ -7,9 +7,11 @@
 //! Changing a type here changes the API: see CONTRIBUTING.md, "Changing the contract".
 
 mod computer;
+mod message;
 mod run;
 
 pub use computer::*;
+pub use message::*;
 pub use run::*;
 
 /// Bump on every breaking change to a type in this crate.

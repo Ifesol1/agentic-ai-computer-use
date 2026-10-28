@@ -30,7 +30,11 @@ fn start(prompt: &str) -> StartRun {
 async fn reads_health_and_runs() {
     let client = serve_mock().await;
     assert!(client.health().await.unwrap().mock);
-    assert_eq!(client.runs().await.unwrap().len(), 1, "the mock starts with a demo run");
+    assert_eq!(
+        client.runs().await.unwrap().len(),
+        1,
+        "the mock starts with a demo run"
+    );
 }
 
 #[tokio::test]

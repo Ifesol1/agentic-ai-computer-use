@@ -9,3 +9,6 @@ publish.workspace = true
 proto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

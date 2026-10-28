@@ -27,12 +27,14 @@ impl EventEmitter<NewRunEvent> for NewRun {}
 
 impl NewRun {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("What should the agent do?"));
-        let subscription = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { .. } = event {
-                this.start(window, cx);
-            }
-        });
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("What should the agent do?"));
+        let subscription =
+            cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.start(window, cx);
+                }
+            });
         Self {
             input,
             busy: false,
@@ -83,7 +85,9 @@ impl Render for NewRun {
         let theme = cx.theme();
         let note = match &self.error {
             Some(error) => div().text_color(theme.danger).child(error.clone()),
-            None => div().text_color(theme.muted_foreground).child("Enter to start"),
+            None => div()
+                .text_color(theme.muted_foreground)
+                .child("Enter to start"),
         };
         v_flex()
             .p_3()

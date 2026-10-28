@@ -2960,6 +2960,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "proto",
+ "tokio",
 ]
 
 [[package]]
@@ -3780,6 +3781,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "proto",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -5119,6 +5121,7 @@ name = "proto"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

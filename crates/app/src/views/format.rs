@@ -19,7 +19,11 @@ pub fn run_summary(run: &RunInfo) -> String {
         1 => "1 step".to_owned(),
         n => format!("{n} steps"),
     };
-    format!("{} · {steps} · ${:.4}", status(run.status), run.usage.cost_usd)
+    format!(
+        "{} · {steps} · ${:.4}",
+        status(run.status),
+        run.usage.cost_usd
+    )
 }
 
 pub fn action(action: &Action) -> String {

@@ -48,7 +48,10 @@ impl Net {
     /// let runs = Net::get(cx).call(|api| async move { api.runs().await });
     /// cx.spawn(async move |this, cx| { let runs = runs.await; /* this.update(cx, ...) */ })
     /// ```
-    pub fn call<F, Fut, T>(&self, call: F) -> impl Future<Output = anyhow::Result<T>> + use<F, Fut, T>
+    pub fn call<F, Fut, T>(
+        &self,
+        call: F,
+    ) -> impl Future<Output = anyhow::Result<T>> + use<F, Fut, T>
     where
         F: FnOnce(Client) -> Fut,
         Fut: Future<Output = anyhow::Result<T>> + Send + 'static,

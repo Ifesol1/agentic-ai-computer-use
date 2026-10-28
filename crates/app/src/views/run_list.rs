@@ -1,6 +1,7 @@
 //! The runs, newest first. Emits `Selected` when one is clicked.
 
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use proto::RunInfo;
 
@@ -66,7 +67,12 @@ impl Render for RunList {
                         .flex_1()
                         .min_w_0()
                         .child(div().truncate().child(run.prompt.clone()))
-                        .child(div().text_xs().text_color(muted).child(format::run_summary(run))),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(format::run_summary(run)),
+                        ),
                 )
         });
         v_flex()

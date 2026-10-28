@@ -9,6 +9,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use proto::{RunEvent, RunInfo, Step};
 use tokio::task::AbortHandle;
@@ -129,7 +130,10 @@ async fn follow(api: Client, id: String, feed: mpsc::UnboundedSender<Feed>) {
                 }
             }
             Err(error) => {
-                if feed.unbounded_send(Feed::Error(format!("{error:#}"))).is_err() {
+                if feed
+                    .unbounded_send(Feed::Error(format!("{error:#}")))
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -201,33 +205,39 @@ impl Render for RunDetail {
                     .child(format!("${:.4}", run.usage.cost_usd)),
             );
 
-        let steps = self.steps.iter().map(|step| {
-            h_flex()
-                .gap_3()
-                .items_start()
-                .child(div().w(px(20.)).flex_none().text_color(muted).child(step.n.to_string()))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_1()
-                        .child(step.note.clone())
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(format::action(&step.action))
-                                .when_some(step.refused, |row, refused| {
-                                    row.child(
-                                        div()
-                                            .text_color(danger)
-                                            .child(format!("refused: {}", format::refusal(refused))),
-                                    )
-                                }),
-                        ),
-                )
-        });
+        let steps =
+            self.steps.iter().map(|step| {
+                h_flex()
+                    .gap_3()
+                    .items_start()
+                    .child(
+                        div()
+                            .w(px(20.))
+                            .flex_none()
+                            .text_color(muted)
+                            .child(step.n.to_string()),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(step.note.clone())
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(format::action(&step.action))
+                                    .when_some(step.refused, |row, refused| {
+                                        row.child(div().text_color(danger).child(format!(
+                                            "refused: {}",
+                                            format::refusal(refused)
+                                        )))
+                                    }),
+                            ),
+                    )
+            });
 
         v_flex()
             .size_full()

@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use proto::{Health, RunInfo};
 
@@ -91,7 +92,8 @@ impl Workspace {
     }
 
     fn select(&mut self, run: RunInfo, cx: &mut Context<Self>) {
-        self.list.update(cx, |list, cx| list.mark_selected(&run.id, cx));
+        self.list
+            .update(cx, |list, cx| list.mark_selected(&run.id, cx));
         self.detail.update(cx, |detail, cx| detail.show(run, cx));
     }
 
@@ -100,7 +102,9 @@ impl Workspace {
         let url = Net::get(cx).url().to_owned();
         let (color, text) = match &self.connection {
             Connection::Connecting => (theme.muted_foreground, format!("Connecting to {url}")),
-            Connection::Up(health) if health.mock => (theme.success, format!("Mock backend · {url}")),
+            Connection::Up(health) if health.mock => {
+                (theme.success, format!("Mock backend · {url}"))
+            }
             Connection::Up(_) => (theme.success, format!("Backend · {url}")),
             Connection::Down => (theme.danger, format!("Can't reach {url}")),
         };
@@ -119,7 +123,13 @@ impl Workspace {
             .border_t_1()
             .border_color(theme.sidebar_border)
             .text_xs()
-            .child(h_flex().gap_2().items_center().child(dot(color)).child(text))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(dot(color))
+                    .child(text),
+            )
             .when_some(hint, |bar, hint| {
                 bar.child(div().text_color(theme.muted_foreground).child(hint))
             })

@@ -103,7 +103,10 @@ async fn read<T: DeserializeOwned>(response: reqwest::Result<Response>) -> anyho
     let response = response.context("the server isn't answering")?;
     let status = response.status();
     if status.is_success() {
-        return response.json().await.context("unexpected answer from the server");
+        return response
+            .json()
+            .await
+            .context("unexpected answer from the server");
     }
     let message = match response.json::<ApiError>().await {
         Ok(body) => body.error,
