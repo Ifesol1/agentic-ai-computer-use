@@ -7,7 +7,7 @@ publish.workspace = true
 
 [dependencies]
 proto.workspace = true
-client.workspace = true
+client = { workspace = true, features = ["mock"] }
 anyhow.workspace = true
 futures.workspace = true
 gpui-kit.workspace = true

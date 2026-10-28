@@ -1,7 +1,11 @@
 //! Network calls run on a small tokio runtime next to GPUI's own executor:
 //! reqwest and the WebSocket client need tokio, and GPUI can await their results.
+//!
+//! Which backend: `HARNESS_URL` when it's set (a `harness serve`, the club server),
+//! else the scripted mock, started inside the app. Either way it's the same
+//! HTTP + WebSocket API, so the views can't tell the difference.
 
-use std::{future::Future, sync::Arc};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use client::Client;
 use gpui_kit::{App, Global};
@@ -24,9 +28,14 @@ impl Net {
             .enable_all()
             .build()
             .expect("the network runtime starts");
-        let client = {
-            let _inside = runtime.enter();
-            Client::from_env()
+        let client = match std::env::var("HARNESS_URL") {
+            Ok(url) if !url.trim().is_empty() => {
+                let _inside = runtime.enter();
+                Client::new(url)
+            }
+            _ => runtime
+                .block_on(Client::spawn_mock(Duration::from_millis(900)))
+                .expect("the built-in mock backend starts"),
         };
         Self {
             runtime: Arc::new(runtime),

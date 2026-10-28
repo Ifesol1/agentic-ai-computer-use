@@ -10,6 +10,8 @@ mod routes;
 pub use mock::MockBackend;
 pub use routes::router;
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use proto::{ProviderInfo, RunEvent, RunInfo, StartRun};
 use tokio::sync::broadcast;
@@ -38,4 +40,17 @@ pub trait Backend: Send + Sync + 'static {
     async fn subscribe(&self, id: &str) -> Option<(Vec<RunEvent>, broadcast::Receiver<RunEvent>)>;
     /// The screenshot taken after a step: (content type, bytes).
     async fn screenshot(&self, id: &str, step: u32) -> Option<(&'static str, Vec<u8>)>;
+}
+
+/// Serves `backend` on a free port on 127.0.0.1, on the current tokio runtime, and
+/// returns its URL. Used by tests and by the app's built-in mock.
+pub async fn serve_local(backend: Arc<dyn Backend>) -> std::io::Result<String> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router(backend)).await {
+            tracing::error!("the local API stopped: {error}");
+        }
+    });
+    Ok(url)
 }

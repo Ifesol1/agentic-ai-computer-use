@@ -109,7 +109,9 @@ impl Workspace {
             Connection::Down => (theme.danger, format!("Can't reach {url}")),
         };
         let hint = match &self.connection {
-            Connection::Down => Some("Start it: cargo run -p agent -- serve --mock".to_owned()),
+            Connection::Down => {
+                Some("Start it: cargo run -p agent --bin harness -- serve --mock".to_owned())
+            }
             Connection::Up(health) if health.contract != proto::CONTRACT_VERSION => Some(format!(
                 "Backend speaks contract v{}, this app v{}: pull and rebuild",
                 health.contract,

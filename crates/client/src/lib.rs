@@ -38,6 +38,17 @@ impl Client {
         Self::new(std::env::var("HARNESS_URL").unwrap_or_else(|_| DEFAULT_URL.to_owned()))
     }
 
+    /// The scripted mock backend, served from this process on a free local port,
+    /// over the same HTTP + WebSocket API as the real one. Call it on a tokio runtime.
+    #[cfg(feature = "mock")]
+    pub async fn spawn_mock(step_delay: Duration) -> anyhow::Result<Self> {
+        let backend = std::sync::Arc::new(api::MockBackend::new(step_delay));
+        let url = api::serve_local(backend)
+            .await
+            .context("can't start the built-in mock backend")?;
+        Ok(Self::new(url))
+    }
+
     pub fn base_url(&self) -> &str {
         &self.base
     }
