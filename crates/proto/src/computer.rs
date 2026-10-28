@@ -3,24 +3,20 @@
 //! Draft v0. The architecture meeting (plan, section 10) freezes these.
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Size {
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -28,9 +24,8 @@ pub struct Rect {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum Button {
     Left,
     Right,
@@ -38,9 +33,8 @@ pub enum Button {
 }
 
 /// What `act` does to a control from the outline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum ElementOp {
     Click,
     DoubleClick,
@@ -51,9 +45,8 @@ pub enum ElementOp {
 
 /// One thing the agent does. Every gesture is bounded: modifiers are released
 /// inside the gesture, drags last 50-1000 ms, scrolls are at most 20 notches.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "do", rename_all = "snake_case")]
-#[ts(export)]
 pub enum Action {
     /// Look again without acting.
     Observe,
@@ -101,8 +94,7 @@ pub enum Action {
 }
 
 /// The window an agent was given.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowInfo {
     pub id: String,
     pub title: String,
@@ -110,8 +102,7 @@ pub struct WindowInfo {
 }
 
 /// One control in the accessibility outline.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Element {
     /// Short reference the model uses, e.g. `e12`. Valid for this observation only.
     pub id: String,
@@ -125,8 +116,7 @@ pub struct Element {
 }
 
 /// What the agent sees after every action.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Observation {
     /// Single-use, expires after about 10 s. Acting needs the newest one.
     pub token: String,
@@ -139,9 +129,8 @@ pub struct Observation {
 }
 
 /// Why `device` refused an action. A refusal always comes with a fresh observation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum Refusal {
     /// The token is old or used: look again first.
     StaleToken,
@@ -157,8 +146,7 @@ pub enum Refusal {
     BudgetSpent,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActionResult {
     /// The input was delivered; it says nothing about whether the app took it.
     pub ok: bool,

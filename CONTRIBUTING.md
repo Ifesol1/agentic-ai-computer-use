@@ -3,14 +3,18 @@
 ## Setup, once
 
 1. Install Rust with rustup: https://rustup.rs. `rust-toolchain.toml` pins the version, and rustup downloads it on your first build.
-2. Recommended, saves minutes per worktree: `cargo install sccache --locked`, then add to `~/.cargo/config.toml`:
+2. Your OS:
+   - **Windows:** accept the Visual Studio C++ build tools when rustup asks. If a build fails with "An Application Control policy has blocked this file (os error 4551)", Smart App Control is on and blocks every program cargo builds. Rust development needs it off: Windows Security > App & browser control > Smart App Control.
+   - **macOS:** install the Xcode command line tools: `xcode-select --install`.
+   - **Linux (Debian/Ubuntu):** `sudo apt install build-essential pkg-config libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev`. On other distros, install the same libraries.
+3. Recommended, saves minutes per worktree: `cargo install sccache --locked`, then add to `~/.cargo/config.toml`:
 
    ```toml
    [build]
    rustc-wrapper = "sccache"
    ```
 
-3. Clone and build:
+4. Clone and build:
 
    ```bash
    git clone https://github.com/Ifesol1/agentic-ai-computer-use.git
@@ -18,14 +22,18 @@
    cargo test
    ```
 
-## Run the fake backend
+The first build compiles GPUI and takes a few minutes; later builds only rebuild what changed.
+
+## Running things
 
 ```bash
-cargo run -p agent -- serve --mock          # http://127.0.0.1:7878
-cargo run -p agent -- serve --mock --mock-step-ms 200   # faster runs
+cargo dev                                  # mock backend + the app, together
+cargo run -p agent -- serve --mock         # just the backend, on http://127.0.0.1:7878
+cargo run -p app                           # just the app (HARNESS_URL picks another backend)
+cargo run -p agent -- serve --mock --mock-step-ms 200   # faster mock runs
 ```
 
-It plays a scripted "turn on dark mode" run with screenshots. A prompt containing "fail" gives a failed run, and `"max_steps": 2` a stopped one.
+The mock plays a scripted "turn on dark mode" run. A prompt containing "fail" gives a failed run, and `"max_steps": 2` a stopped one.
 
 ## Branches, worktrees, PRs
 
@@ -40,14 +48,14 @@ It plays a scripted "turn on dark mode" run with screenshots. A prompt containin
   git worktree remove ../wt/ife-click-tool
   ```
 
-- Keep a PR to one crate where you can. CI must pass and one person must approve.
+- Keep a PR to one crate where you can; in the app, to one view file. CI must pass and one person must approve.
 - `Cargo.lock` is committed. When it conflicts: take main's copy, run `cargo build`, commit.
 
 ## Changing the contract (`crates/proto`)
 
-The types in `crates/proto` are what the frontend codes against, and `web/src/gen` is generated from them.
+The types in `crates/proto` are the API between the app and the backend. Both sides use the same Rust types, so a change that breaks either side fails to compile.
 
-1. Open an issue labelled `contract` that says what changes and why, and tag someone from the frontend.
-2. In the PR: change the type, make `MockBackend` show the change, run `cargo test` (it rewrites `web/src/gen`), and commit both. CI fails if `web/src/gen` is out of date.
-3. Non-breaking: a new optional field, a new event type, a new route. Breaking: renaming or removing a field, changing a field's type, a new required field. For a breaking change, bump `CONTRACT_VERSION` and put `[breaking]` in the PR title.
-4. A contract PR needs one backend and one frontend approval.
+1. Open an issue labelled `contract` that says what changes and why, and tag someone from the other side.
+2. In the PR: change the type, make `MockBackend` show the change, and fix both sides until `cargo test` passes.
+3. Non-breaking: a new optional field, a new event type, a new route. Breaking: renaming or removing a field, changing a field's type, a new required field. For a breaking change, bump `CONTRACT_VERSION` and put `[breaking]` in the PR title. The app warns when it talks to a backend on another contract version.
+4. A contract PR needs one backend and one app approval.

@@ -1,12 +1,10 @@
-//! The contract between the frontend, the server, the agent loop and the devices.
+//! The contract between the app, the server, the agent loop and the devices.
 //!
-//! Every type here travels as JSON (serde). Every type marked `#[ts(export)]` is
-//! also written to `web/src/gen/` as TypeScript when `cargo test` runs, so the
-//! frontend imports the same shapes the server sends.
+//! Every type here travels as JSON (serde). The backend sends these types and the
+//! app (`crates/app`, through `crates/client`) reads the very same Rust types, so a
+//! change here is checked by the compiler on both sides at once.
 //!
 //! Changing a type here changes the API: see CONTRIBUTING.md, "Changing the contract".
-//! Use `u32` or `f64` for numbers, never `u64`/`i64`: ts-rs turns those into `bigint`,
-//! which `JSON.parse` never produces.
 
 mod computer;
 mod run;

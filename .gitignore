@@ -7,10 +7,6 @@
 !.env.example
 /runs/
 
-# Frontend
-node_modules/
-web/dist/
-
 # Editors and OS
 .idea/
 .vscode/*
