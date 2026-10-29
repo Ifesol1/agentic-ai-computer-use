@@ -29,14 +29,29 @@ The first build compiles GPUI and takes a few minutes; later builds only rebuild
 ```bash
 cargo dev                                  # mock backend + the app, together
 cargo run -p agent -- serve --mock         # just the backend, on http://127.0.0.1:7878
-cargo run -p app                           # just the app (HARNESS_URL picks another backend)
+cargo run -p app                           # just the app, with the mock built in
+HARNESS_URL=http://127.0.0.1:7878 cargo run -p app      # the app against a running backend
 cargo run -p agent -- serve --mock --mock-step-ms 200   # faster mock runs
+cargo run -p agent -- run --mock "turn on dark mode"    # the real agent loop, scripted model, fake window
 ```
 
-The mock plays a scripted "turn on dark mode" run. A prompt containing "fail" gives a failed run, and `"max_steps": 2` a stopped one.
+The mock backend plays a scripted "turn on dark mode" run. A prompt containing "fail" gives a failed run, and `"max_steps": 2` a stopped one.
+
+`harness run --mock` is different: it runs the real agent loop (`crates/agent`) with a scripted model (`llm::MockProvider`) against a fake Settings window (`hands::fake::FakeSettings`), prints each step and writes `runs/<id>.jsonl` (git-ignored).
+
+## Before every commit
+
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+CI runs the same three on Linux, and clippy and the tests on macOS and Windows.
 
 ## Branches, worktrees, PRs
 
+- Pick a task from [README.md, "Next tasks"](README.md#next-tasks) and claim it in an issue, so two people don't build the same thing.
 - Branch name: `<your-name>/<task>`, for example `ife/click-tool`.
 - One task = one branch = one worktree, so agents and people never share files:
 
