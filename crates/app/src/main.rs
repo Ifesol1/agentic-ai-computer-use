@@ -1,9 +1,10 @@
 //! The desktop app (GPUI): start runs and watch them live.
 //!
 //! It talks to the backend only through the `client` crate (HTTP + WebSocket), so
-//! it works the same against `harness serve --mock`, the real backend, or the
-//! club server. Set `HARNESS_URL` to point it somewhere other than
-//! http://127.0.0.1:7878.
+//! it works the same against its built-in mock, `harness serve --mock`, the real
+//! backend, or the club server. Without `HARNESS_URL` it starts the scripted mock
+//! inside the app; with it (`cargo dev` sets http://127.0.0.1:7878) it uses that
+//! backend.
 
 // No console window behind release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
