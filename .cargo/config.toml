@@ -1,0 +1,3 @@
+[alias]
+# Start the mock backend and the app together (see crates/xtask).
+dev = "run --quiet --package xtask -- dev"
