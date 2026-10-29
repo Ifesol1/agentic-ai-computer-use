@@ -8,7 +8,7 @@ use gpui_kit::*;
 use proto::{Health, RunInfo};
 
 use super::{
-    dot,
+    dot, format,
     new_run::{NewRun, NewRunEvent},
     run_detail::RunDetail,
     run_list::{RunList, RunListEvent},
@@ -101,23 +101,14 @@ impl Workspace {
         let theme = cx.theme();
         let url = Net::get(cx).url().to_owned();
         let (color, text) = match &self.connection {
-            Connection::Connecting => (theme.muted_foreground, format!("Connecting to {url}")),
-            Connection::Up(health) if health.mock => {
-                (theme.success, format!("Mock backend · {url}"))
-            }
-            Connection::Up(_) => (theme.success, format!("Backend · {url}")),
-            Connection::Down => (theme.danger, format!("Can't reach {url}")),
+            Connection::Connecting => (theme.muted_foreground, format::connecting(&url)),
+            Connection::Up(health) => (theme.success, format::connected(&url, health.mock)),
+            Connection::Down => (theme.danger, format::unreachable(&url)),
         };
         let hint = match &self.connection {
-            Connection::Down => {
-                Some("Start it: cargo run -p agent --bin harness -- serve --mock".to_owned())
-            }
-            Connection::Up(health) if health.contract != proto::CONTRACT_VERSION => Some(format!(
-                "Backend speaks contract v{}, this app v{}: pull and rebuild",
-                health.contract,
-                proto::CONTRACT_VERSION
-            )),
-            _ => None,
+            Connection::Down => Some(format::START_BACKEND_HINT.to_owned()),
+            Connection::Up(health) => format::contract_mismatch(health.contract),
+            Connection::Connecting => None,
         };
         v_flex()
             .p_3()

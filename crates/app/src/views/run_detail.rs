@@ -152,7 +152,7 @@ impl Render for RunDetail {
                 .items_center()
                 .justify_center()
                 .text_color(muted)
-                .child("Start a run, or pick one on the left.")
+                .child(format::NO_RUN_SELECTED)
                 .into_any_element();
         };
 
@@ -178,7 +178,7 @@ impl Render for RunDetail {
                             Button::new("stop-run")
                                 .danger()
                                 .small()
-                                .label("Stop")
+                                .label(format::STOP)
                                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
                         )
                     }),
@@ -196,48 +196,43 @@ impl Render for RunDetail {
                             .child(dot(status_color(run.status, cx)))
                             .child(format::status(run.status)),
                     )
-                    .child(format!("{} · {}", run.provider, run.model))
-                    .child(format!("{} steps", run.steps))
-                    .child(format!(
-                        "{} tokens",
-                        run.usage.input_tokens + run.usage.output_tokens
-                    ))
-                    .child(format!("${:.4}", run.usage.cost_usd)),
+                    .child(format::provider_model(run))
+                    .child(format::steps(run.steps))
+                    .child(format::tokens(&run.usage))
+                    .child(format::cost(run.usage.cost_usd)),
             );
 
-        let steps =
-            self.steps.iter().map(|step| {
-                h_flex()
-                    .gap_3()
-                    .items_start()
-                    .child(
-                        div()
-                            .w(px(20.))
-                            .flex_none()
-                            .text_color(muted)
-                            .child(step.n.to_string()),
-                    )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(step.note.clone())
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child(format::action(&step.action))
-                                    .when_some(step.refused, |row, refused| {
-                                        row.child(div().text_color(danger).child(format!(
-                                            "refused: {}",
-                                            format::refusal(refused)
-                                        )))
-                                    }),
-                            ),
-                    )
-            });
+        let steps = self.steps.iter().map(|step| {
+            h_flex()
+                .gap_3()
+                .items_start()
+                .child(
+                    div()
+                        .w(px(20.))
+                        .flex_none()
+                        .text_color(muted)
+                        .child(step.n.to_string()),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(step.note.clone())
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(format::action(&step.action))
+                                .when_some(step.refused, |row, refused| {
+                                    row.child(
+                                        div().text_color(danger).child(format::refused(refused)),
+                                    )
+                                }),
+                        ),
+                )
+        });
 
         v_flex()
             .size_full()

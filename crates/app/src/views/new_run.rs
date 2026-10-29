@@ -10,6 +10,7 @@ use gpui_kit::component::{
 use gpui_kit::*;
 use proto::{RunInfo, StartRun};
 
+use super::format;
 use crate::net::Net;
 
 pub enum NewRunEvent {
@@ -28,7 +29,7 @@ impl EventEmitter<NewRunEvent> for NewRun {}
 impl NewRun {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("What should the agent do?"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(format::PROMPT_PLACEHOLDER));
         let subscription =
             cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
@@ -87,7 +88,7 @@ impl Render for NewRun {
             Some(error) => div().text_color(theme.danger).child(error.clone()),
             None => div()
                 .text_color(theme.muted_foreground)
-                .child("Enter to start"),
+                .child(format::ENTER_TO_START),
         };
         v_flex()
             .p_3()
@@ -105,7 +106,7 @@ impl Render for NewRun {
                         Button::new("start-run")
                             .primary()
                             .small()
-                            .label("Start run")
+                            .label(format::START_RUN)
                             .loading(self.busy)
                             .on_click(cx.listener(|this, _, window, cx| this.start(window, cx))),
                     ),
