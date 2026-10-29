@@ -1,3 +1,8 @@
 * text=auto eol=lf
 *.png binary
 *.ico binary
+
+# List-only files: two PRs that each add a line (a tool, an adapter) both keep
+# theirs instead of conflicting. Keep one entry per line in these files.
+crates/agent/src/tools/mod.rs merge=union
+crates/llm/src/adapters/mod.rs merge=union

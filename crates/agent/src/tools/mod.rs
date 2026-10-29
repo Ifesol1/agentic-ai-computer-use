@@ -5,4 +5,9 @@
 mod computer;
 mod done;
 
-pub const ALL: &[&dyn crate::Tool] = &[&computer::Computer, &done::Done];
+// One entry per line, so union merges keep both sides.
+#[rustfmt::skip]
+pub const ALL: &[&dyn crate::Tool] = &[
+    &computer::Computer,
+    &done::Done,
+];

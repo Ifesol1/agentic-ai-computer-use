@@ -11,8 +11,8 @@ mod openai;
 mod openai_compat;
 
 pub const ALL: &[crate::Adapter] = &[
-    antigravity::ADAPTER,
     anthropic::ADAPTER,
+    antigravity::ADAPTER,
     claude_code::ADAPTER,
     codex::ADAPTER,
     gemini::ADAPTER,
