@@ -133,7 +133,16 @@ async fn run(
     fs::create_dir_all(log_dir).with_context(|| format!("can't make {}", log_dir.display()))?;
     let path = log_dir.join(format!("{id}.jsonl"));
     let mut log = BufWriter::new(File::create(&path)?);
-    let outcome = agent::run(provider, hands, task, &mut |event: RunEvent| {
+    // Ctrl-C stops the run after the action in flight, with a Finished event.
+    let stop = agent::CancellationToken::new();
+    let on_ctrl_c = stop.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            eprintln!("stopping after the action in flight");
+            on_ctrl_c.cancel();
+        }
+    });
+    let outcome = agent::run(provider, hands, task, &stop, &mut |event: RunEvent| {
         print_event(&event);
         if let Ok(line) = serde_json::to_string(&event) {
             let _ = writeln!(log, "{line}");

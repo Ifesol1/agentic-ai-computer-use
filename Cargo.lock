@@ -115,6 +115,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "api",
+ "async-trait",
  "axum",
  "clap",
  "hands",
@@ -123,6 +124,7 @@ dependencies = [
  "proto",
  "serde_json",
  "tokio",
+ "tokio-util",
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",

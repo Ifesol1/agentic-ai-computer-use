@@ -9,12 +9,16 @@
 //! - The loop, not the model, holds the observation token. A refused action is
 //!   reported back with fresh evidence; nothing is retried automatically.
 //! - Budgets (turns, cost) are the caller's; the model can't raise them.
-//! - Progress goes out as `proto::RunEvent`s, the same events the app shows.
+//! - A person can stop a run at any time (a [`CancellationToken`]). A stop waits
+//!   for the action in flight, never for the model, and ends the run `Stopped`.
+//! - Progress goes out as `proto::RunEvent`s, the same events the app shows,
+//!   through a [`Sink`], which also gets each step's screenshot to keep.
 
 pub mod demo;
 mod tool;
 mod tools;
 
+pub use tokio_util::sync::CancellationToken;
 pub use tool::{Call, Tool, all as all_tools, find as find_tool};
 
 use std::time::SystemTime;
@@ -24,6 +28,28 @@ use llm::{Provider, TurnRequest};
 use proto::{
     ActionResult, ContentBlock, Message, Observation, RunEvent, RunStatus, Step, ToolSpec, Usage,
 };
+
+/// Where a run's progress goes: the events the app shows, and the screenshots
+/// behind them. A plain `FnMut(RunEvent)` is a sink that keeps no screenshots.
+pub trait Sink: Send {
+    fn event(&mut self, event: RunEvent);
+
+    /// The observation image taken after step `n` (a URL or data URL, as in
+    /// [`Observation::image`]). Returns where it can now be fetched, which the
+    /// loop puts in the step's `screenshot_url`; `None` keeps nothing.
+    fn screenshot(&mut self, _n: u32, _image: &str) -> Option<String> {
+        None
+    }
+}
+
+impl<F: FnMut(RunEvent) + Send> Sink for F {
+    fn event(&mut self, event: RunEvent) {
+        self(event)
+    }
+}
+
+/// The reply of a run a person stopped.
+pub const STOPPED_BY_REQUEST: &str = "Stopped by request.";
 
 const SYSTEM: &str = "You operate one window on a computer through tools. Each observation \
 lists the window's controls (an outline); work them by reference with the `computer` tool. \
@@ -63,23 +89,25 @@ pub struct Outcome {
     pub usage: Usage,
 }
 
-/// Runs one task to the end. Never panics on model or backend errors: they end
-/// the run as `Failed`, reported through `emit` like everything else.
+/// Runs one task to the end, or until `stop` is cancelled. Never panics on model
+/// or backend errors: they end the run as `Failed`, reported through `sink` like
+/// everything else.
 pub async fn run(
     provider: &dyn Provider,
     hands: &dyn Hands,
     task: &Task,
-    emit: &mut (dyn FnMut(RunEvent) + Send),
+    stop: &CancellationToken,
+    sink: &mut dyn Sink,
 ) -> Outcome {
     let mut run = Run {
-        emit,
+        sink,
         steps: 0,
         usage: Usage::default(),
     };
     run.emit(RunEvent::Status {
         status: RunStatus::Running,
     });
-    match run.drive(provider, hands, task).await {
+    match run.drive(provider, hands, task, stop).await {
         Ok((status, reply)) => run.finish(status, reply),
         Err(error) => {
             run.emit(RunEvent::Error {
@@ -91,14 +119,14 @@ pub async fn run(
 }
 
 struct Run<'a> {
-    emit: &'a mut (dyn FnMut(RunEvent) + Send),
+    sink: &'a mut dyn Sink,
     steps: u32,
     usage: Usage,
 }
 
 impl Run<'_> {
     fn emit(&mut self, event: RunEvent) {
-        (self.emit)(event);
+        self.sink.event(event);
     }
 
     fn finish(&mut self, status: RunStatus, reply: Option<String>) -> Outcome {
@@ -119,7 +147,12 @@ impl Run<'_> {
         provider: &dyn Provider,
         hands: &dyn Hands,
         task: &Task,
+        stop: &CancellationToken,
     ) -> anyhow::Result<(RunStatus, Option<String>)> {
+        let stopped = || Ok((RunStatus::Stopped, Some(STOPPED_BY_REQUEST.to_owned())));
+        if stop.is_cancelled() {
+            return stopped();
+        }
         let tools: Vec<ToolSpec> = all_tools().iter().map(|tool| tool.spec()).collect();
         let vision = provider.caps(&task.model).vision;
         let mut observation = hands.observe().await?;
@@ -128,6 +161,10 @@ impl Run<'_> {
         let mut messages = vec![Message::user(first)];
 
         for turn in 1.. {
+            // Checked between turns, so a stop never cuts an action short.
+            if stop.is_cancelled() {
+                return stopped();
+            }
             if turn > task.limits.max_turns {
                 let reply = format!(
                     "Stopped: the budget of {} turns ran out.",
@@ -143,14 +180,18 @@ impl Run<'_> {
                 return Ok((RunStatus::Stopped, Some(reply)));
             }
 
-            let response = provider
-                .turn(TurnRequest {
-                    model: task.model.clone(),
-                    system: SYSTEM.into(),
-                    messages: messages.clone(),
-                    tools: tools.clone(),
-                })
-                .await?;
+            let request = TurnRequest {
+                model: task.model.clone(),
+                system: SYSTEM.into(),
+                messages: messages.clone(),
+                tools: tools.clone(),
+            };
+            // A stop doesn't wait for a slow model: the request is dropped.
+            let response = tokio::select! {
+                biased;
+                () = stop.cancelled() => return stopped(),
+                response = provider.turn(request) => response?,
+            };
             self.usage.input_tokens += response.usage.input_tokens;
             self.usage.output_tokens += response.usage.output_tokens;
             self.usage.cost_usd += response.usage.cost_usd;
@@ -190,6 +231,13 @@ impl Run<'_> {
                         acted = true;
                         let outcome = hands.act(&observation.token, &action).await?;
                         self.steps += 1;
+                        // The sink keeps the image first, so the URL in the step
+                        // event already works when the app sees it.
+                        let screenshot_url = outcome
+                            .observation
+                            .image
+                            .as_deref()
+                            .and_then(|image| self.sink.screenshot(self.steps, image));
                         self.emit(RunEvent::Step {
                             step: Step {
                                 n: self.steps,
@@ -197,7 +245,7 @@ impl Run<'_> {
                                 action,
                                 ok: outcome.ok,
                                 refused: outcome.refused,
-                                screenshot_url: None,
+                                screenshot_url,
                                 at: now(),
                             },
                         });
@@ -298,13 +346,113 @@ mod tests {
     }
 
     async fn play(
-        provider: &MockProvider,
-        hands: &FakeSettings,
+        provider: &dyn Provider,
+        hands: &dyn Hands,
         task: &Task,
     ) -> (Outcome, Vec<RunEvent>) {
+        play_until(provider, hands, task, &CancellationToken::new()).await
+    }
+
+    async fn play_until(
+        provider: &dyn Provider,
+        hands: &dyn Hands,
+        task: &Task,
+        stop: &CancellationToken,
+    ) -> (Outcome, Vec<RunEvent>) {
         let mut events = Vec::new();
-        let outcome = run(provider, hands, task, &mut |event| events.push(event)).await;
+        let outcome = run(provider, hands, task, stop, &mut |event: RunEvent| {
+            events.push(event)
+        })
+        .await;
         (outcome, events)
+    }
+
+    fn finished_as(events: &[RunEvent]) -> Option<(RunStatus, Option<&str>)> {
+        match events.last() {
+            Some(RunEvent::Finished { status, reply }) => Some((*status, reply.as_deref())),
+            _ => None,
+        }
+    }
+
+    fn step_urls(events: &[RunEvent]) -> Vec<Option<String>> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                RunEvent::Step { step } => Some(step.screenshot_url.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A model that never answers: a stop must not wait for it.
+    struct Stuck;
+
+    #[async_trait::async_trait]
+    impl Provider for Stuck {
+        fn caps(&self, _model: &str) -> llm::Caps {
+            llm::Caps::default()
+        }
+
+        async fn turn(&self, _req: TurnRequest) -> anyhow::Result<llm::TurnResponse> {
+            std::future::pending().await
+        }
+    }
+
+    /// A model that presses Stop while answering, so the stop lands while its
+    /// action is in flight.
+    struct StopsWhileActing {
+        stop: CancellationToken,
+        inner: MockProvider,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for StopsWhileActing {
+        fn caps(&self, model: &str) -> llm::Caps {
+            self.inner.caps(model)
+        }
+
+        async fn turn(&self, req: TurnRequest) -> anyhow::Result<llm::TurnResponse> {
+            self.stop.cancel();
+            self.inner.turn(req).await
+        }
+    }
+
+    /// The fake window, with a screenshot in every observation.
+    struct WithImage(FakeSettings);
+
+    const IMAGE: &str = "data:image/png;base64,iVBORw0KGgo=";
+
+    #[async_trait::async_trait]
+    impl Hands for WithImage {
+        async fn observe(&self) -> anyhow::Result<Observation> {
+            let mut observation = self.0.observe().await?;
+            observation.image = Some(IMAGE.into());
+            Ok(observation)
+        }
+
+        async fn act(&self, token: &str, action: &proto::Action) -> anyhow::Result<ActionResult> {
+            let mut result = self.0.act(token, action).await?;
+            result.observation.image = Some(IMAGE.into());
+            Ok(result)
+        }
+    }
+
+    /// A sink that keeps screenshots, the way a backend does.
+    #[derive(Default)]
+    struct Keeper {
+        events: Vec<RunEvent>,
+        shots: Vec<(u32, String)>,
+    }
+
+    impl Sink for Keeper {
+        fn event(&mut self, event: RunEvent) {
+            self.events.push(event);
+        }
+
+        fn screenshot(&mut self, n: u32, image: &str) -> Option<String> {
+            self.shots.push((n, image.to_owned()));
+            Some(format!("/shots/{n}"))
+        }
     }
 
     fn press(element: &str) -> serde_json::Value {
@@ -335,6 +483,81 @@ mod tests {
         // The model never sees the token.
         let sent = format!("{:?}", provider.requests());
         assert!(!sent.contains("\"t1\"") && !sent.contains("\"t2\""));
+        // The fake window has no screenshots, so the steps point nowhere.
+        assert_eq!(step_urls(&events), [None, None]);
+    }
+
+    #[tokio::test]
+    async fn a_stop_before_the_first_turn_asks_the_model_nothing() {
+        let (provider, hands) = (MockProvider::new(demo::script()), FakeSettings::new());
+        let stop = CancellationToken::new();
+        stop.cancel();
+        let (outcome, events) = play_until(&provider, &hands, &task(), &stop).await;
+        assert_eq!(outcome.status, RunStatus::Stopped);
+        assert_eq!(outcome.steps, 0);
+        assert!(provider.requests().is_empty());
+        assert_eq!(
+            finished_as(&events),
+            Some((RunStatus::Stopped, Some(STOPPED_BY_REQUEST)))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_does_not_wait_for_the_model() {
+        let stop = CancellationToken::new();
+        let later = stop.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            later.cancel();
+        });
+        let (outcome, events) = play_until(&Stuck, &FakeSettings::new(), &task(), &stop).await;
+        assert_eq!(outcome.status, RunStatus::Stopped);
+        assert_eq!(outcome.steps, 0);
+        assert_eq!(
+            finished_as(&events),
+            Some((RunStatus::Stopped, Some(STOPPED_BY_REQUEST)))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_waits_for_the_action_in_flight() {
+        let stop = CancellationToken::new();
+        let provider = StopsWhileActing {
+            stop: stop.clone(),
+            inner: MockProvider::new(demo::script()),
+        };
+        let hands = FakeSettings::new();
+        let (outcome, events) = play_until(&provider, &hands, &task(), &stop).await;
+        // The first action still ran and was reported; the second turn never came.
+        assert_eq!(outcome.status, RunStatus::Stopped);
+        assert_eq!(outcome.steps, 1);
+        assert_eq!(provider.inner.requests().len(), 1);
+        assert!(matches!(
+            events.iter().find(|event| matches!(event, RunEvent::Step { .. })),
+            Some(RunEvent::Step { step }) if step.ok && step.n == 1
+        ));
+        assert!(!hands.is_dark(), "the second action never ran");
+    }
+
+    #[tokio::test]
+    async fn screenshots_go_to_the_sink_and_their_urls_into_the_steps() {
+        let provider = MockProvider::new(demo::script());
+        let hands = WithImage(FakeSettings::new());
+        let mut keeper = Keeper::default();
+        let outcome = run(
+            &provider,
+            &hands,
+            &task(),
+            &CancellationToken::new(),
+            &mut keeper,
+        )
+        .await;
+        assert_eq!(outcome.status, RunStatus::Succeeded);
+        assert_eq!(keeper.shots, [(1, IMAGE.to_owned()), (2, IMAGE.to_owned())]);
+        assert_eq!(
+            step_urls(&keeper.events),
+            [Some("/shots/1".to_owned()), Some("/shots/2".to_owned())]
+        );
     }
 
     #[tokio::test]
