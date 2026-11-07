@@ -10,8 +10,13 @@
 //!   reported back with fresh evidence; nothing is retried automatically.
 //! - Budgets (turns, cost) are the caller's; the model can't raise them.
 //! - Progress goes out as `proto::RunEvent`s, the same events the app shows.
+//! - Memory and loop checks (`memory.rs`): only the newest observation is sent in
+//!   full, older ones shrink to one line; the model keeps what it needs with
+//!   `note`; an action that changed nothing visible isn't sent again on the same
+//!   window (`no_visible_progress`).
 
 pub mod demo;
+mod memory;
 mod tool;
 mod tools;
 
@@ -28,7 +33,8 @@ use proto::{
 const SYSTEM: &str = "You operate one window on a computer through tools. Each observation \
 lists the window's controls (an outline); work them by reference with the `computer` tool. \
 Do one action per turn. Before you call `done`, look at the newest observation and only \
-claim what it shows.";
+claim what it shows. Only the newest observation is shown in full; older ones shrink to one \
+line, so use `note` to keep anything you'll need from them.";
 
 /// Budgets the model can't raise.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -126,6 +132,14 @@ impl Run<'_> {
         let mut first = vec![ContentBlock::text(format!("Task: {}", task.prompt))];
         first.extend(describe(&observation, vision));
         let mut messages = vec![Message::user(first)];
+        let mut trail = memory::Trail::default();
+        trail.push(
+            &mut messages,
+            memory::Slot::Message(0),
+            &observation,
+            vision,
+        );
+        let mut progress = memory::Progress::default();
 
         for turn in 1.. {
             if turn > task.limits.max_turns {
@@ -156,7 +170,7 @@ impl Run<'_> {
             self.usage.cost_usd += response.usage.cost_usd;
             self.emit(RunEvent::Usage { usage: self.usage });
 
-            let note = texts(&response.content);
+            let note = memory::step_note(&response.content);
             let calls: Vec<_> = response
                 .content
                 .iter()
@@ -173,12 +187,20 @@ impl Run<'_> {
 
             let mut results = Vec::new();
             let mut acted = false;
+            // Which of `results` carries this turn's new observation, if any.
+            let mut observed = None;
             for (id, name, args) in calls {
                 let call = find_tool(name)
                     .ok_or_else(|| anyhow::anyhow!("no tool named `{name}`"))
                     .and_then(|tool| tool.parse(args));
                 let result = match call {
                     Err(error) => refused(id, format!("{error:#}")),
+                    // Not an action, so it goes with one; the text is already in `note`.
+                    Ok(Call::Note { .. }) => ContentBlock::ToolResult {
+                        id: id.clone(),
+                        content: vec![ContentBlock::text("Noted.")],
+                        is_error: false,
+                    },
                     Ok(_) if acted => refused(
                         id,
                         "Not run: one action per turn, and `done` only after you've seen the \
@@ -188,7 +210,14 @@ impl Run<'_> {
                     Ok(Call::Done { reply }) => return Ok((RunStatus::Succeeded, Some(reply))),
                     Ok(Call::Act(action)) => {
                         acted = true;
-                        let outcome = hands.act(&observation.token, &action).await?;
+                        let outcome = if progress.repeats(&action, &observation) {
+                            memory::no_visible_progress(hands.observe().await?)
+                        } else {
+                            let outcome = hands.act(&observation.token, &action).await?;
+                            progress.record(&action, &observation, &outcome);
+                            outcome
+                        };
+                        observed = Some(results.len());
                         self.steps += 1;
                         self.emit(RunEvent::Step {
                             step: Step {
@@ -214,6 +243,11 @@ impl Run<'_> {
             }
             messages.push(Message::assistant(response.content));
             messages.push(Message::user(results));
+            if let Some(block) = observed {
+                let message = messages.len() - 1;
+                let slot = memory::Slot::Result { message, block };
+                trail.push(&mut messages, slot, &observation, vision);
+            }
         }
         unreachable!("the turn budget ends the loop")
     }
@@ -241,6 +275,10 @@ fn texts(content: &[ContentBlock]) -> String {
 /// What an action did, then the window as it is now.
 fn report(outcome: &ActionResult, vision: bool) -> Vec<ContentBlock> {
     let head = match (outcome.ok, outcome.refused) {
+        (_, Some(proto::Refusal::NoVisibleProgress)) => format!(
+            "Refused: \"no_visible_progress\". {} Here is the window now.",
+            memory::TRY_SOMETHING_ELSE
+        ),
         (_, Some(refusal)) => format!(
             "Refused: {}. Nothing was done. Here is the window now.",
             serde_json::to_string(&refusal).unwrap_or_default()
@@ -393,6 +431,166 @@ mod tests {
             &last.content[0],
             ContentBlock::ToolResult { is_error: true, .. }
         ));
+    }
+
+    /// Every text the model was sent, tool results included.
+    fn sent_texts(messages: &[Message]) -> Vec<String> {
+        fn walk(blocks: &[ContentBlock], out: &mut Vec<String>) {
+            for block in blocks {
+                match block {
+                    ContentBlock::Text { text } => out.push(text.clone()),
+                    ContentBlock::ToolResult { content, .. } => walk(content, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for message in messages {
+            walk(&message.content, &mut out);
+        }
+        out
+    }
+
+    fn steps_of(events: &[RunEvent]) -> Vec<Step> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                RunEvent::Step { step } => Some(step.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The fake window, counting the actions that reach it.
+    #[derive(Default)]
+    struct Counting {
+        inner: FakeSettings,
+        acts: std::sync::atomic::AtomicU32,
+    }
+
+    #[async_trait::async_trait]
+    impl Hands for Counting {
+        async fn observe(&self) -> anyhow::Result<Observation> {
+            self.inner.observe().await
+        }
+
+        async fn act(&self, token: &str, action: &proto::Action) -> anyhow::Result<ActionResult> {
+            self.acts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.inner.act(token, action).await
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_newest_observation_is_sent_in_full() {
+        let (provider, hands) = (MockProvider::new(demo::script()), FakeSettings::new());
+        let (outcome, _) = play(&provider, &hands, &task()).await;
+        assert_eq!(outcome.status, RunStatus::Succeeded);
+        let requests = provider.requests();
+        assert_eq!(requests.len(), 3);
+        for (turn, request) in requests.iter().enumerate() {
+            let texts = sent_texts(&request.messages);
+            let full: Vec<_> = texts.iter().filter(|t| t.contains("Outline:")).collect();
+            assert_eq!(full.len(), 1, "turn {}: one full observation", turn + 1);
+            let shrunk = texts
+                .iter()
+                .filter(|t| t.starts_with("(Older observation, shrunk to one line"))
+                .count();
+            assert_eq!(
+                shrunk,
+                turn,
+                "turn {}: every older one is one line",
+                turn + 1
+            );
+        }
+        // The one in full is the newest: the switch is on by the last turn.
+        let last = sent_texts(&requests[2].messages);
+        let full = last.iter().find(|t| t.contains("Outline:")).unwrap();
+        assert!(full.contains(r#""value":"on""#), "{full}");
+    }
+
+    #[tokio::test]
+    async fn a_note_goes_with_an_action_and_into_the_step() {
+        let mut first = MockProvider::call("Opening Appearance.", "c1", "computer", press("e3"));
+        first.extend(MockProvider::call(
+            "",
+            "c2",
+            "note",
+            json!({"text": "Dark mode should be under Appearance."}),
+        ));
+        let provider = MockProvider::new([
+            first,
+            MockProvider::call(
+                "",
+                "c3",
+                "note",
+                json!({"text": "Appearance is open; the switch is e12."}),
+            ),
+            MockProvider::call("", "c4", "done", json!({"reply": "Appearance is open."})),
+        ]);
+        let hands = FakeSettings::new();
+        let (outcome, events) = play(&provider, &hands, &task()).await;
+        assert_eq!(outcome.status, RunStatus::Succeeded);
+        assert_eq!(outcome.steps, 1, "a note isn't a step");
+        assert_eq!(
+            provider.requests().len(),
+            3,
+            "a turn with only a note doesn't end the run"
+        );
+        let steps = steps_of(&events);
+        assert_eq!(
+            steps[0].note,
+            "Opening Appearance.\nDark mode should be under Appearance."
+        );
+        // Both calls of the first turn ran: the action, and the note after it.
+        let second = &provider.requests()[1];
+        let results = &second.messages.last().unwrap().content;
+        assert_eq!(results.len(), 2);
+        for result in results {
+            assert!(matches!(
+                result,
+                ContentBlock::ToolResult {
+                    is_error: false,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_action_that_changed_nothing_is_refused_the_second_time() {
+        // Wi-Fi (e1) is already the open page, so pressing it changes nothing.
+        let provider = MockProvider::new([
+            MockProvider::call("Opening Wi-Fi.", "c1", "computer", press("e1")),
+            MockProvider::call("Once more.", "c2", "computer", press("e1")),
+            MockProvider::call("Appearance, then.", "c3", "computer", press("e3")),
+            MockProvider::call("", "c4", "done", json!({"reply": "Appearance is open."})),
+        ]);
+        let hands = Counting::default();
+        let mut events = Vec::new();
+        let outcome = run(&provider, &hands, &task(), &mut |event| events.push(event)).await;
+        assert_eq!(outcome.status, RunStatus::Succeeded);
+        assert_eq!(
+            hands.acts.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the repeat never reached the window"
+        );
+        let refusals: Vec<_> = steps_of(&events)
+            .iter()
+            .map(|s| (s.ok, s.refused))
+            .collect();
+        assert_eq!(
+            refusals,
+            [
+                (true, None),
+                (false, Some(proto::Refusal::NoVisibleProgress)),
+                (true, None),
+            ]
+        );
+        // The model was told why, with a fresh look at the window.
+        let third = &provider.requests()[2];
+        let told = sent_texts(std::slice::from_ref(third.messages.last().unwrap()));
+        assert!(told[0].contains("no_visible_progress"), "{told:?}");
+        assert!(told[1].contains("Outline:"), "{told:?}");
     }
 
     #[tokio::test]
