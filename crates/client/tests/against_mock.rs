@@ -63,6 +63,39 @@ async fn follows_a_run_to_the_end() {
 }
 
 #[tokio::test]
+async fn fetches_each_steps_screenshot() {
+    let client = serve_mock().await;
+    let run = client.start_run(&start("turn on dark mode")).await.unwrap();
+    let events: Vec<RunEvent> = client
+        .events(&run.id)
+        .await
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+        .await;
+    let urls: Vec<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            RunEvent::Step { step } => step.screenshot_url.clone(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(urls.len(), 4);
+    for url in &urls {
+        let (content_type, bytes) = client.screenshot(url).await.unwrap();
+        assert_eq!(content_type, "image/svg+xml");
+        assert!(bytes.starts_with(b"<svg"));
+    }
+    // A full URL works too, and a missing screenshot keeps the server's message.
+    let full = format!("{}{}", client.base_url(), urls[0]);
+    assert!(client.screenshot(&full).await.is_ok());
+    let missing = format!("/api/runs/{}/steps/99/screenshot", run.id);
+    let error = client.screenshot(&missing).await.unwrap_err();
+    let error = error.downcast::<ClientError>().unwrap();
+    assert_eq!(error.status, 404);
+}
+
+#[tokio::test]
 async fn server_errors_keep_their_message() {
     let client = serve_mock().await;
     let error = client.start_run(&start("  ")).await.unwrap_err();

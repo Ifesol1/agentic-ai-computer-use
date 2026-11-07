@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use futures::{Stream, StreamExt};
 use proto::{ApiError, Health, ProviderInfo, RunEvent, RunInfo, StartRun};
-use reqwest::{Response, StatusCode};
+use reqwest::{Response, StatusCode, header::CONTENT_TYPE};
 use serde::de::DeserializeOwned;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -91,13 +91,47 @@ impl Client {
         let (socket, _) = tokio_tungstenite::connect_async(url.as_str())
             .await
             .with_context(|| format!("can't open {url}"))?;
-        Ok(socket.filter_map(|frame| async move {
-            match frame {
-                Ok(Message::Text(text)) => Some(serde_json::from_str(&text).map_err(Into::into)),
-                Ok(_) => None,
-                Err(error) => Some(Err(error.into())),
-            }
-        }))
+        // Ends right after `finished`, without reading on: the server closes the
+        // socket then, and on Windows that read fails ("connection aborted",
+        // os error 10053) instead of ending cleanly.
+        let mut finished = false;
+        Ok(socket
+            .filter_map(|frame| async move {
+                match frame {
+                    Ok(Message::Text(text)) => {
+                        Some(serde_json::from_str::<RunEvent>(&text).map_err(Into::into))
+                    }
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error.into())),
+                }
+            })
+            .take_while(move |event| {
+                let more = !finished;
+                finished |= matches!(event, Ok(RunEvent::Finished { .. }));
+                futures::future::ready(more)
+            }))
+    }
+
+    /// A step's screenshot: (content type, bytes). `url` is the step's
+    /// `screenshot_url`, a path on this server or a full URL.
+    pub async fn screenshot(&self, url: &str) -> anyhow::Result<(String, Vec<u8>)> {
+        let url = if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_owned()
+        } else {
+            self.url(url)
+        };
+        let response = checked(self.http.get(url).send().await).await?;
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let bytes = response
+            .bytes()
+            .await
+            .context("the screenshot didn't arrive whole")?;
+        Ok((content_type, bytes.to_vec()))
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -111,13 +145,19 @@ impl Client {
 
 /// The body as `T`, or the server's `ApiError` message as the error.
 async fn read<T: DeserializeOwned>(response: reqwest::Result<Response>) -> anyhow::Result<T> {
+    checked(response)
+        .await?
+        .json()
+        .await
+        .context("unexpected answer from the server")
+}
+
+/// The response when it's a success, else the server's `ApiError` message as the error.
+async fn checked(response: reqwest::Result<Response>) -> anyhow::Result<Response> {
     let response = response.context("the server isn't answering")?;
     let status = response.status();
     if status.is_success() {
-        return response
-            .json()
-            .await
-            .context("unexpected answer from the server");
+        return Ok(response);
     }
     let message = match response.json::<ApiError>().await {
         Ok(body) => body.error,
