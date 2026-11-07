@@ -39,7 +39,7 @@ Everything below runs without keys, a model or a desktop: the model and the scre
 | `crates/proto` | The contract: types shared by the app, server, agent loop and devices | Run API types and events, `Action` / `Observation` / `ActionResult` / `Refusal`, neutral `Message` / `ContentBlock` / `ToolSpec` | Hub <-> device messages |
 | `crates/api` | HTTP + WebSocket routes (axum) behind the `Backend` trait | Every route, `MockBackend` (scripted runs), contract tests | A backend that runs the real agent loop |
 | `crates/client` | A typed client for the API; the app talks to the backend only through it | All routes, the live event stream, the in-process mock (`mock` feature), tests against the mock | |
-| `crates/app` | The desktop app (GPUI, with GPUI Kit components), one file per view | Start a run, run list, a live run with Stop, connection bar; built-in mock; `format.rs` and `net.rs` tested | Screenshots in the run view, provider/model picker |
+| `crates/app` | The desktop app (GPUI, with GPUI Kit components), one file per view | Start a run, run list, a live run with Stop and each step's screenshot, a provider/model picker fed by `GET /api/providers`, connection bar; built-in mock; `format.rs` and `net.rs` tested | |
 | `crates/agent` | The agent loop (lib) and the `harness` binary | The observe -> act -> verify loop (one action per turn, `done` only after a fresh observation, turn and cost budgets), `harness run --mock`, `runs/<id>.jsonl` logs, `harness serve --mock`, `harness providers` | `serve` without `--mock`, `harness.toml` config, keys, `harness login` |
 | `crates/llm` | Model providers behind one `Provider` trait | The trait, `Caps`, `ProviderConfig`, the adapter registry, `MockProvider` | Every real adapter: `anthropic`, `openai`, `openai_compat`, `gemini`, `codex`, `claude_code`, `antigravity` (they error "isn't built yet") |
 | `crates/hands` | Screens and input behind one `Hands` trait | `fake::FakeSettings` (enforces tokens and bounds), `scale` (image <-> screen coordinates), tested | Window mode on Windows, macOS and Linux (`src/os/`), the Docker private desktop, the accessibility outline |
@@ -57,7 +57,6 @@ One per crate, so people can work in parallel. Claim one by opening an issue (or
 - **agent, a real backend for the API:** an `api::Backend` that runs `agent::run`, so `harness serve` without `--mock` works (start with `MockProvider` + `FakeSettings`, then real providers). Plus `harness.toml` config and keys from the OS keychain or env.
 - **agent, memory and loop checks:** the one-line trail for older observations, `note`, and the `no_visible_progress` refusal (plan, section 10.4), tested with `MockProvider`.
 - **device:** the binary that dials the hub over a WebSocket, runs one action at a time through `hands`, and enforces tokens, budgets and the person's input winning (plan, section 10.6).
-- **app:** show each step's screenshot in the run view, and a provider/model picker fed by `GET /api/providers`.
 - **proto:** the hub <-> device messages, agreed in a `contract` issue first.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before your first PR.
