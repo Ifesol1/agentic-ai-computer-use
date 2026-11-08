@@ -36,7 +36,9 @@ cargo run -p agent -- serve --mock --mock-step-ms 200   # faster mock runs
 cargo run -p agent -- run --mock "turn on dark mode"    # the real agent loop, scripted model, fake window
 Xvfb :99 -screen 0 1280x800x24 &                                     # a virtual X desktop (Linux)
 cargo run -p agent -- serve --desktop :99                            # the backend driving that desktop
-cargo run -p agent -- run --desktop :99 --provider anthropic --model claude-opus-5-5 "open the browser"   # a real model on it; key in ANTHROPIC_API_KEY
+cp harness.example.toml harness.toml                                 # your models; keys stay in env variables it names
+cargo run -p agent -- providers                                       # what the config gives you
+cargo run -p agent -- run --desktop :99 --provider claude "open the browser"   # a real model on the desktop; key in ANTHROPIC_API_KEY
 ```
 
 The mock backend plays a scripted "turn on dark mode" run. A prompt containing "fail" gives a failed run, and `"max_steps": 2` a stopped one.

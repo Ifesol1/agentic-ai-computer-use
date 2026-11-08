@@ -4,7 +4,7 @@ use std::{
     fs::{self, File},
     io::{BufWriter, Write},
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -19,6 +19,10 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(version, about = "The club's computer-use agent")]
 struct Cli {
+    /// Which models to use (see harness.example.toml). Default: ./harness.toml
+    /// when it exists, else only the built-in scripted model.
+    #[arg(long, global = true)]
+    config: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -73,13 +77,24 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    let config = load_config(cli.config.as_deref())?;
+    match cli.command {
         Command::Serve {
             addr,
             mock,
             mock_step_ms,
             desktop,
-        } => serve(addr, mock, Duration::from_millis(mock_step_ms), desktop).await,
+        } => {
+            serve(
+                addr,
+                mock,
+                Duration::from_millis(mock_step_ms),
+                desktop,
+                &config,
+            )
+            .await
+        }
         Command::Run {
             prompt,
             mock,
@@ -105,11 +120,23 @@ async fn main() -> anyhow::Result<()> {
                     Box::new(hands::fake::FakeSettings::new()),
                 )
             } else {
-                let config = llm::ProviderConfig {
-                    name: provider.clone(),
-                    kind: provider,
-                    model: task.model.clone(),
-                    ..Default::default()
+                // `--provider` is a name from the config, else an adapter kind.
+                let config = match config.providers.get(&provider) {
+                    Some(table) => llm::ProviderConfig {
+                        name: provider.clone(),
+                        model: if task.model.is_empty() {
+                            table.model.clone()
+                        } else {
+                            task.model.clone()
+                        },
+                        ..table.clone()
+                    },
+                    None => llm::ProviderConfig {
+                        name: provider.clone(),
+                        kind: provider,
+                        model: task.model.clone(),
+                        ..Default::default()
+                    },
                 };
                 let hands: Box<dyn hands::Hands> = match desktop {
                     Some(display) => hands::desktop(&display)?,
@@ -120,11 +147,29 @@ async fn main() -> anyhow::Result<()> {
             run(provider.as_ref(), hands.as_ref(), &task, &log_dir).await
         }
         Command::Providers => {
-            println!("mock (harness run --mock)");
-            for kind in llm::kinds() {
-                println!("{kind}");
+            for spec in config.providers()? {
+                let info = spec.info;
+                let default = if info.is_default { "  (default)" } else { "" };
+                println!("{}: {} {}{default}", info.name, info.kind, info.model);
             }
+            let kinds: Vec<_> = llm::kinds().collect();
+            println!("adapter kinds: {}", kinds.join(", "));
             Ok(())
+        }
+    }
+}
+
+/// `--config`, else ./harness.toml when it exists, else nothing configured.
+fn load_config(path: Option<&Path>) -> anyhow::Result<agent::Config> {
+    match path {
+        Some(path) => agent::Config::load(path),
+        None => {
+            let default = Path::new(agent::config::DEFAULT_PATH);
+            if default.exists() {
+                agent::Config::load(default)
+            } else {
+                Ok(agent::Config::default())
+            }
         }
     }
 }
@@ -195,25 +240,34 @@ async fn serve(
     mock: bool,
     step_delay: Duration,
     desktop: Option<String>,
+    config: &agent::Config,
 ) -> anyhow::Result<()> {
-    // Until there is config for real providers, the real loop runs on the
-    // scripted model: on the fake Settings window, or on the X11 desktop asked for.
+    // The real loop on the providers from the config (plus the scripted one),
+    // on the fake Settings window or on the X11 desktop asked for.
     let (backend, what): (Arc<dyn api::Backend>, String) = if mock {
         (
             Arc::new(api::MockBackend::new(step_delay)),
             "mock API".into(),
         )
-    } else if let Some(display) = desktop {
-        // Fail now, not on the first run, if the display isn't there.
-        hands::desktop(&display)?;
-        let what = format!("API, real loop on the X11 desktop {display}");
-        let hands: agent::HandsFactory = Arc::new(move |_| hands::desktop(&display));
-        (Arc::new(agent::AgentBackend::demo_on(hands)), what)
     } else {
-        (
-            Arc::new(agent::AgentBackend::demo()),
-            "API, real loop on the fake window".into(),
-        )
+        let providers = config.providers()?;
+        let (hands, screen): (agent::HandsFactory, String) = match desktop {
+            Some(display) => {
+                // Fail now, not on the first run, if the display isn't there.
+                hands::desktop(&display)?;
+                let screen = format!("the X11 desktop {display}");
+                (Arc::new(move |_| hands::desktop(&display)), screen)
+            }
+            None => (
+                Arc::new(|_| Ok(Box::new(hands::fake::FakeSettings::new()))),
+                "the fake window".into(),
+            ),
+        };
+        let what = format!(
+            "API, real loop on {screen}, default provider `{}`",
+            config.default_name()
+        );
+        (Arc::new(agent::AgentBackend::new(providers, hands)), what)
     };
     let app = api::router(backend).layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(addr)

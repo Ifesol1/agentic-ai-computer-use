@@ -117,18 +117,7 @@ impl AgentBackend {
 
     /// The scripted model on whatever `hands` builds: the real desktop, say.
     pub fn demo_on(hands: HandsFactory) -> Self {
-        let mock = ProviderSpec {
-            info: ProviderInfo {
-                name: "mock".into(),
-                kind: "mock".into(),
-                model: "scripted".into(),
-                vision: true,
-                native_computer: false,
-                is_default: true,
-            },
-            build: Arc::new(|| Ok(Box::new(llm::MockProvider::new(crate::demo::script())))),
-        };
-        Self::new(vec![mock], hands)
+        Self::new(vec![crate::config::mock_spec(true)], hands)
     }
 
     fn provider(&self, name: Option<&str>) -> Result<&ProviderSpec, BadRequest> {

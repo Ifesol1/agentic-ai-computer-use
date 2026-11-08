@@ -13,3 +13,6 @@
 !.vscode/extensions.json
 .DS_Store
 Thumbs.db
+
+# Your own provider setup; copy harness.example.toml. Holds no keys, but it is yours.
+/harness.toml

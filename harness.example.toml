@@ -1,0 +1,22 @@
+# Which models `harness serve` and `harness run` can use. Copy to harness.toml.
+#
+# No key goes in here: `api_key_env` names the environment variable that holds
+# it. The built-in `mock` (scripted model) is always there too.
+
+default = "claude"
+
+[providers.claude]
+kind = "anthropic"
+model = "claude-opus-5-5"
+api_key_env = "ANTHROPIC_API_KEY"
+# Screenshots leave the PC, so computer use is opt-in per provider.
+allow_computer = true
+
+# Anything with an OpenAI-style chat API, once the openai_compat adapter lands.
+# [providers.local]
+# kind = "openai_compat"
+# base_url = "http://127.0.0.1:11434/v1"
+# model = "a-local-vision-model"
+# vision = true
+# input_usd_per_mtok = 0
+# output_usd_per_mtok = 0

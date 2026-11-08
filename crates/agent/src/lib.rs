@@ -15,11 +15,13 @@
 //!   through a [`Sink`], which also gets each step's screenshot to keep.
 
 pub mod backend;
+pub mod config;
 pub mod demo;
 mod tool;
 mod tools;
 
 pub use backend::{AgentBackend, HandsFactory, ProviderFactory, ProviderSpec};
+pub use config::Config;
 pub use tokio_util::sync::CancellationToken;
 pub use tool::{Call, Tool, all as all_tools, find as find_tool};
 
