@@ -29,7 +29,7 @@ enum Command {
     Serve {
         #[arg(long, default_value = "127.0.0.1:7878")]
         addr: SocketAddr,
-        /// Play scripted runs: no keys, no models, no desktop.
+        /// Play scripted runs instead of the real loop: no keys, no models, no desktop.
         #[arg(long)]
         mock: bool,
         /// Pause before each mock step, in milliseconds.
@@ -182,15 +182,21 @@ fn print_event(event: &RunEvent) {
 }
 
 async fn serve(addr: SocketAddr, mock: bool, step_delay: Duration) -> anyhow::Result<()> {
-    if !mock {
-        bail!("only the mock backend exists so far: run `harness serve --mock`");
-    }
-    let backend: Arc<dyn api::Backend> = Arc::new(api::MockBackend::new(step_delay));
+    // Until there is config for real providers and hands, the real loop runs on
+    // the scripted model and the fake Settings window (`AgentBackend::demo`).
+    let (backend, what): (Arc<dyn api::Backend>, &str) = if mock {
+        (Arc::new(api::MockBackend::new(step_delay)), "mock API")
+    } else {
+        (
+            Arc::new(agent::AgentBackend::demo()),
+            "API, real loop on the fake window",
+        )
+    };
     let app = api::router(backend).layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("can't listen on {addr}"))?;
-    tracing::info!("mock API on http://{addr}  (try GET /api/runs)");
+    tracing::info!("{what} on http://{addr}  (try GET /api/runs)");
     axum::serve(listener, app).await?;
     Ok(())
 }

@@ -28,7 +28,8 @@ The first build compiles GPUI and takes a few minutes; later builds only rebuild
 
 ```bash
 cargo dev                                  # mock backend + the app, together
-cargo run -p agent -- serve --mock         # just the backend, on http://127.0.0.1:7878
+cargo run -p agent -- serve --mock         # just the backend, scripted runs, on http://127.0.0.1:7878
+cargo run -p agent -- serve                # the backend with the real loop (scripted model, fake window for now)
 cargo run -p app                           # just the app, with the mock built in
 HARNESS_URL=http://127.0.0.1:7878 cargo run -p app      # the app against a running backend
 cargo run -p agent -- serve --mock --mock-step-ms 200   # faster mock runs

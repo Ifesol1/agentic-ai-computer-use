@@ -15,6 +15,8 @@ hands.workspace = true
 llm.workspace = true
 proto.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
 axum.workspace = true
 clap.workspace = true
 humantime.workspace = true
@@ -26,4 +28,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
+futures-util.workspace = true
+tokio-tungstenite.workspace = true
+tower.workspace = true
