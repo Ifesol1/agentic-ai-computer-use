@@ -2,13 +2,45 @@
 //! connection read. Pure functions and constants, so they're tested without
 //! opening a window.
 
-use proto::{Action, ElementOp, Refusal, RunInfo, RunStatus, Usage};
+use proto::{Action, ElementOp, ProviderInfo, Refusal, RunInfo, RunStatus, Usage};
 
 pub const PROMPT_PLACEHOLDER: &str = "What should the agent do?";
 pub const ENTER_TO_START: &str = "Enter to start";
 pub const START_RUN: &str = "Start run";
 pub const STOP: &str = "Stop";
 pub const NO_RUN_SELECTED: &str = "Start a run, or pick one on the left.";
+
+/// The model picker before the backend has listed its providers.
+pub const DEFAULT_MODEL: &str = "Default model";
+pub const MODEL_PICKER_LABEL: &str = "Model";
+
+/// One entry in the model picker, e.g. `claude · claude-sonnet-5-5`, with
+/// `(default)` on the one the backend uses when none is picked.
+pub fn provider_option(provider: &ProviderInfo) -> String {
+    let option = format!("{} · {}", provider.name, provider.model);
+    match provider.is_default {
+        true => format!("{option} (default)"),
+        false => option,
+    }
+}
+
+pub const SCREENSHOT_LOADING: &str = "Loading screenshot…";
+pub const SCREENSHOT_UNREADABLE: &str = "the image couldn't be read";
+
+/// A screenshot in a format the app can't draw.
+pub fn unsupported_image(content_type: &str) -> String {
+    format!("can't show {content_type} images")
+}
+
+/// Where a step's screenshot would be, when it couldn't be shown.
+pub fn screenshot_failed(error: &str) -> String {
+    format!("No screenshot: {error}")
+}
+
+/// Read aloud for a step's screenshot.
+pub fn screenshot_label(step: u32) -> String {
+    format!("The window after step {step}")
+}
 
 pub fn status(status: RunStatus) -> &'static str {
     match status {
@@ -202,5 +234,36 @@ mod tests {
     #[test]
     fn refusals_read_as_text() {
         assert_eq!(refused(Refusal::StaleToken), "refused: stale observation");
+    }
+
+    #[test]
+    fn providers_read_as_picker_options() {
+        let mut provider = ProviderInfo {
+            name: "claude".into(),
+            kind: "anthropic".into(),
+            model: "claude-sonnet-5-5".into(),
+            vision: true,
+            native_computer: true,
+            is_default: false,
+        };
+        assert_eq!(provider_option(&provider), "claude · claude-sonnet-5-5");
+        provider.is_default = true;
+        assert_eq!(
+            provider_option(&provider),
+            "claude · claude-sonnet-5-5 (default)"
+        );
+    }
+
+    #[test]
+    fn screenshot_text() {
+        assert_eq!(
+            screenshot_failed("not found (404)"),
+            "No screenshot: not found (404)"
+        );
+        assert_eq!(screenshot_label(3), "The window after step 3");
+        assert_eq!(
+            screenshot_failed(&unsupported_image("text/html")),
+            "No screenshot: can't show text/html images"
+        );
     }
 }
