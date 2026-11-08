@@ -9,6 +9,10 @@ publish.workspace = true
 proto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-
-[dev-dependencies]
+base64.workspace = true
+image.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb.workspace = true

@@ -23,6 +23,7 @@ futures = "0.3"
 futures-util = "0.3"
 gpui-kit = "0.7"
 humantime = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,6 +35,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+x11rb = { version = "0.13", features = ["xtest"] }
 
 # Debug info only for our own crates: GPUI's dependency tree is large, and this
 # keeps target/ several GB smaller and links faster.

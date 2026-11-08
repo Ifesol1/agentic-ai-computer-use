@@ -35,6 +35,9 @@ enum Command {
         /// Pause before each mock step, in milliseconds.
         #[arg(long, default_value_t = 900)]
         mock_step_ms: u64,
+        /// Run on the X11 desktop at this display (e.g. `:99`) instead of the fake window.
+        #[arg(long)]
+        desktop: Option<String>,
     },
     /// Run one task from the terminal with the real agent loop.
     Run {
@@ -48,8 +51,11 @@ enum Command {
         #[arg(short, long, default_value = "")]
         model: String,
         /// The window to borrow (window mode). Ignored with --mock.
-        #[arg(long, default_value = "")]
+        #[arg(long, default_value = "", conflicts_with = "desktop")]
         window: String,
+        /// The X11 desktop to drive, by display (e.g. `:99`). Ignored with --mock.
+        #[arg(long)]
+        desktop: Option<String>,
         #[arg(long, default_value_t = Limits::default().max_turns)]
         max_steps: u32,
         #[arg(long, default_value_t = Limits::default().max_cost_usd)]
@@ -72,13 +78,15 @@ async fn main() -> anyhow::Result<()> {
             addr,
             mock,
             mock_step_ms,
-        } => serve(addr, mock, Duration::from_millis(mock_step_ms)).await,
+            desktop,
+        } => serve(addr, mock, Duration::from_millis(mock_step_ms), desktop).await,
         Command::Run {
             prompt,
             mock,
             provider,
             model,
             window,
+            desktop,
             max_steps,
             max_cost,
             log_dir,
@@ -103,10 +111,11 @@ async fn main() -> anyhow::Result<()> {
                     model: task.model.clone(),
                     ..Default::default()
                 };
-                (
-                    llm::build(&config)?,
-                    Box::new(hands::WindowMode::new(window)),
-                )
+                let hands: Box<dyn hands::Hands> = match desktop {
+                    Some(display) => hands::desktop(&display)?,
+                    None => Box::new(hands::WindowMode::new(window)),
+                };
+                (llm::build(&config)?, hands)
             };
             run(provider.as_ref(), hands.as_ref(), &task, &log_dir).await
         }
@@ -181,15 +190,29 @@ fn print_event(event: &RunEvent) {
     }
 }
 
-async fn serve(addr: SocketAddr, mock: bool, step_delay: Duration) -> anyhow::Result<()> {
-    // Until there is config for real providers and hands, the real loop runs on
-    // the scripted model and the fake Settings window (`AgentBackend::demo`).
-    let (backend, what): (Arc<dyn api::Backend>, &str) = if mock {
-        (Arc::new(api::MockBackend::new(step_delay)), "mock API")
+async fn serve(
+    addr: SocketAddr,
+    mock: bool,
+    step_delay: Duration,
+    desktop: Option<String>,
+) -> anyhow::Result<()> {
+    // Until there is config for real providers, the real loop runs on the
+    // scripted model: on the fake Settings window, or on the X11 desktop asked for.
+    let (backend, what): (Arc<dyn api::Backend>, String) = if mock {
+        (
+            Arc::new(api::MockBackend::new(step_delay)),
+            "mock API".into(),
+        )
+    } else if let Some(display) = desktop {
+        // Fail now, not on the first run, if the display isn't there.
+        hands::desktop(&display)?;
+        let what = format!("API, real loop on the X11 desktop {display}");
+        let hands: agent::HandsFactory = Arc::new(move |_| hands::desktop(&display));
+        (Arc::new(agent::AgentBackend::demo_on(hands)), what)
     } else {
         (
             Arc::new(agent::AgentBackend::demo()),
-            "API, real loop on the fake window",
+            "API, real loop on the fake window".into(),
         )
     };
     let app = api::router(backend).layer(TraceLayer::new_for_http());

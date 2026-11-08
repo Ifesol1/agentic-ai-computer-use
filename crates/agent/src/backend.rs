@@ -112,6 +112,11 @@ impl AgentBackend {
     /// The real loop on the scripted model and the fake Settings window: what
     /// `harness serve` runs until there is config for real providers and hands.
     pub fn demo() -> Self {
+        Self::demo_on(Arc::new(|_| Ok(Box::new(hands::fake::FakeSettings::new()))))
+    }
+
+    /// The scripted model on whatever `hands` builds: the real desktop, say.
+    pub fn demo_on(hands: HandsFactory) -> Self {
         let mock = ProviderSpec {
             info: ProviderInfo {
                 name: "mock".into(),
@@ -123,10 +128,7 @@ impl AgentBackend {
             },
             build: Arc::new(|| Ok(Box::new(llm::MockProvider::new(crate::demo::script())))),
         };
-        Self::new(
-            vec![mock],
-            Arc::new(|_| Ok(Box::new(hands::fake::FakeSettings::new()))),
-        )
+        Self::new(vec![mock], hands)
     }
 
     fn provider(&self, name: Option<&str>) -> Result<&ProviderSpec, BadRequest> {
