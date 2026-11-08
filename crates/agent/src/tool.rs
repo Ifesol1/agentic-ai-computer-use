@@ -12,7 +12,13 @@ pub trait Tool: Sync {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Call {
     Act(Action),
-    Done { reply: String },
+    Done {
+        reply: String,
+    },
+    /// Not an action: the loop answers "Noted." and the note joins the step's note.
+    Note {
+        text: String,
+    },
 }
 
 /// Every tool, in the order the model sees them.
