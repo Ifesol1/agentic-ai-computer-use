@@ -29,7 +29,7 @@ enum Command {
     Serve {
         #[arg(long, default_value = "127.0.0.1:7878")]
         addr: SocketAddr,
-        /// Play scripted runs: no keys, no models, no desktop.
+        /// Play scripted runs instead of the real loop: no keys, no models, no desktop.
         #[arg(long)]
         mock: bool,
         /// Pause before each mock step, in milliseconds.
@@ -133,7 +133,16 @@ async fn run(
     fs::create_dir_all(log_dir).with_context(|| format!("can't make {}", log_dir.display()))?;
     let path = log_dir.join(format!("{id}.jsonl"));
     let mut log = BufWriter::new(File::create(&path)?);
-    let outcome = agent::run(provider, hands, task, &mut |event: RunEvent| {
+    // Ctrl-C stops the run after the action in flight, with a Finished event.
+    let stop = agent::CancellationToken::new();
+    let on_ctrl_c = stop.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            eprintln!("stopping after the action in flight");
+            on_ctrl_c.cancel();
+        }
+    });
+    let outcome = agent::run(provider, hands, task, &stop, &mut |event: RunEvent| {
         print_event(&event);
         if let Ok(line) = serde_json::to_string(&event) {
             let _ = writeln!(log, "{line}");
@@ -173,15 +182,21 @@ fn print_event(event: &RunEvent) {
 }
 
 async fn serve(addr: SocketAddr, mock: bool, step_delay: Duration) -> anyhow::Result<()> {
-    if !mock {
-        bail!("only the mock backend exists so far: run `harness serve --mock`");
-    }
-    let backend: Arc<dyn api::Backend> = Arc::new(api::MockBackend::new(step_delay));
+    // Until there is config for real providers and hands, the real loop runs on
+    // the scripted model and the fake Settings window (`AgentBackend::demo`).
+    let (backend, what): (Arc<dyn api::Backend>, &str) = if mock {
+        (Arc::new(api::MockBackend::new(step_delay)), "mock API")
+    } else {
+        (
+            Arc::new(agent::AgentBackend::demo()),
+            "API, real loop on the fake window",
+        )
+    };
     let app = api::router(backend).layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("can't listen on {addr}"))?;
-    tracing::info!("mock API on http://{addr}  (try GET /api/runs)");
+    tracing::info!("{what} on http://{addr}  (try GET /api/runs)");
     axum::serve(listener, app).await?;
     Ok(())
 }
