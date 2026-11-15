@@ -62,6 +62,20 @@ pub struct ProviderConfig {
     /// Screenshots leave the PC, so computer use is opt-in per connection.
     #[serde(default)]
     pub allow_computer: bool,
+    /// What the model can do, where the adapter's default is wrong for it
+    /// (see [`Caps`]). Set per model in config, never guessed from its name.
+    #[serde(default)]
+    pub vision: Option<bool>,
+    #[serde(default)]
+    pub native_computer: Option<bool>,
+    #[serde(default)]
+    pub max_image_edge: Option<u32>,
+    /// Prices in US dollars per million tokens, for the cost in `Usage`. Adapters
+    /// know the prices of the models they ship with; set these for any other.
+    #[serde(default)]
+    pub input_usd_per_mtok: Option<f64>,
+    #[serde(default)]
+    pub output_usd_per_mtok: Option<f64>,
 }
 
 /// How an adapter is found by its `kind =`.
